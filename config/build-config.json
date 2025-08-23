@@ -1,22 +1,35 @@
 {
   "newstart_os": {
-    "version": "V6.06.11B10",
-    "architecture": "x86_64",
-    "iso_filename": "NewStart-CGS-Linux-MAIN.V6.06.11B10-x86_64.dvd.iso",
-    "download_url": "https://nsosmirrors.gd-linux.com/CGSLV6/NDECGSL/V6.06.11/x86_64/NewStart-CGS-Linux-MAIN.V6.06.11B10-x86_64.dvd.iso",
-    "expected_size_bytes": 3597217792
+    "versions": {
+      "v6.06.11b10": {
+        "version": "V6.06.11B10",
+        "architecture": "x86_64",
+        "iso_filename": "NewStart-CGS-Linux-MAIN.V6.06.11B10-x86_64.dvd.iso",
+        "download_url": "https://nsosmirrors.gd-linux.com/CGSLV6/NDECGSL/V6.06.11/x86_64/NewStart-CGS-Linux-MAIN.V6.06.11B10-x86_64.dvd.iso",
+        "expected_size_bytes": 3597217792,
+        "tag_prefix": "v6.06.11b10"
+      },
+      "v7.02.03b9": {
+        "version": "7.02.03B9",
+        "architecture": "x86_64",
+        "iso_filename": "NewStart-CGSL-7.02.03B9-x86_64-dvd.iso",
+        "download_url": "https://nsosmirrors.gd-linux.com/CGSLV7/7.02.03B9/x86_64/NewStart-CGSL-7.02.03B9-x86_64-dvd.iso",
+        "expected_size_bytes": 0,
+        "tag_prefix": "v7.02.03b9"
+      }
+    },
+    "default_version": "v6.06.11b10"
   },
   "docker": {
     "base_image": "scratch",
     "registry": "localhost",
-    "namespace": "newstartos",
-    "tag_prefix": "v6.06.11b10"
+    "namespace": "newstartos"
   },
   "build": {
     "parallel_jobs": 4,
     "timeout_minutes": 120,
     "cache_dir": "./build-cache",
-    "base_image": "alpine:3.19",
+    "base_image": "debian:bookworm-slim",
     "use_buildkit": true,
     "platform": "linux/amd64"
   },

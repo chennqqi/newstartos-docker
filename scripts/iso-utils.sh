@@ -41,10 +41,26 @@ load_config() {
         exit 1
     fi
     
-    ISO_FILENAME=$(jq -r '.newstart_os.iso_filename' "$CONFIG_FILE")
-    DOWNLOAD_URL=$(jq -r '.newstart_os.download_url' "$CONFIG_FILE")
-    EXPECTED_SIZE=$(jq -r '.newstart_os.expected_size_bytes' "$CONFIG_FILE")
-    VERSION=$(jq -r '.newstart_os.version' "$CONFIG_FILE")
+    # 支持版本参数
+    local version=${1:-$(jq -r '.newstart_os.default_version' "$CONFIG_FILE")}
+    
+    # 验证版本是否存在
+    if ! jq -e ".newstart_os.versions[\"$version\"]" "$CONFIG_FILE" >/dev/null 2>&1; then
+        log_error "Version $version not found in configuration"
+        log_info "Available versions:"
+        jq -r '.newstart_os.versions | keys[]' "$CONFIG_FILE" | while read -r ver; do
+            log_info "  - $ver"
+        done
+        exit 1
+    fi
+    
+    ISO_FILENAME=$(jq -r ".newstart_os.versions[\"$version\"].iso_filename" "$CONFIG_FILE")
+    DOWNLOAD_URL=$(jq -r ".newstart_os.versions[\"$version\"].download_url" "$CONFIG_FILE")
+    EXPECTED_SIZE=$(jq -r ".newstart_os.versions[\"$version\"].expected_size_bytes" "$CONFIG_FILE")
+    VERSION_NAME=$(jq -r ".newstart_os.versions[\"$version\"].version" "$CONFIG_FILE")
+    TAG_PREFIX=$(jq -r ".newstart_os.versions[\"$version\"].tag_prefix" "$CONFIG_FILE")
+    
+    log_info "Loaded configuration for version: $VERSION_NAME ($version)"
 }
 
 # 验证ISO文件
@@ -167,7 +183,7 @@ show_iso_info() {
 # 显示帮助信息
 show_help() {
     cat << EOF
-Usage: $0 [COMMAND] [OPTIONS]
+Usage: $0 [COMMAND] [VERSION] [OPTIONS]
 
 NewStart OS ISO file management utility.
 
@@ -178,14 +194,18 @@ COMMANDS:
     info        Show ISO file information
     help        Show this help message
 
+VERSIONS:
+    v6.06.11b10  NewStart OS V6.06.11B10
+    v7.02.03b9   NewStart OS 7.02.03B9
+
 OPTIONS:
     -h, --help  Show help message
 
 EXAMPLES:
-    $0 verify          # Verify existing ISO file
-    $0 download        # Download ISO file
-    $0 extract         # Extract ISO content
-    $0 info            # Show ISO information
+    $0 verify v6.06.11b10          # Verify V6.06.11B10 ISO file
+    $0 download v7.02.03b9         # Download V7.02.03B9 ISO file
+    $0 extract v6.06.11b10         # Extract V6.06.11B10 ISO content
+    $0 info v6.06.11b10            # Show V6.06.11B10 ISO information
 
 EOF
 }
@@ -193,6 +213,7 @@ EOF
 # 主函数
 main() {
     local command=""
+    local version=""
     
     # 解析命令行参数
     while [[ $# -gt 0 ]]; do
@@ -203,6 +224,10 @@ main() {
                 ;;
             verify|download|extract|info)
                 command="$1"
+                shift
+                ;;
+            v6.06.11b10|v7.02.03b9)
+                version="$1"
                 shift
                 ;;
             *)
@@ -220,7 +245,7 @@ main() {
     fi
     
     # 加载配置
-    load_config
+    load_config "$version"
     
     # 执行命令
     case "$command" in

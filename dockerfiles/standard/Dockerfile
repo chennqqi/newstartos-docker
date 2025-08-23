@@ -8,53 +8,41 @@ FROM scratch AS iso-extract
 COPY iso/NewStart-CGS-Linux-MAIN.V6.06.11B10-x86_64.dvd.iso /tmp/newstart.iso
 
 # Stage 2: Package extraction and system preparation
-FROM alpine:3.19 AS package-extract
+FROM debian:bookworm-slim AS package-extract
 
 # Install required tools for package extraction
-RUN apk update && \
-    apk add --no-cache \
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
         squashfs-tools \
         genisoimage \
         xorriso \
-        util-linux \
         rpm \
-        createrepo \
+        createrepo-c \
         rsync \
         tar \
         gzip \
-        xz \
+        xz-utils \
         curl \
         wget \
-        bash \
-        shadow \
-        && rm -rf /var/cache/apk/*
+        p7zip-full \
+        && apt-get clean && \
+        rm -rf /var/lib/apt/lists/*
 
 # Create mount point and extract ISO
 RUN mkdir -p /mnt/iso /mnt/squashfs /tmp/extract
 COPY iso/NewStart-CGS-Linux-MAIN.V6.06.11B10-x86_64.dvd.iso /tmp/newstart.iso
 
-# Mount and extract ISO contents
-RUN mount -o loop /tmp/newstart.iso /mnt/iso && \
-    if [ -f /mnt/iso/LiveOS/squashfs.img ]; then \
-        mount -o loop /mnt/iso/LiveOS/squashfs.img /mnt/squashfs; \
-        rsync -av /mnt/squashfs/ /tmp/extract/; \
-        umount /mnt/squashfs; \
-    else \
-        rsync -av /mnt/iso/ /tmp/extract/; \
-    fi && \
-    umount /mnt/iso
+# Extract ISO contents using 7z
+RUN 7z x /tmp/newstart.iso -o/tmp/extract -y && \
+    if [ -f /tmp/extract/LiveOS/squashfs.img ]; then \
+        7z x /tmp/extract/LiveOS/squashfs.img -o/tmp/extract -y; \
+    fi
 
 # Extract RPM packages
 RUN find /tmp/extract -name "*.rpm" -exec cp {} /tmp/packages/ \; 2>/dev/null || true
 
-# Stage 3: System root preparation
-FROM scratch AS system-root
-
-# Copy extracted system files
-COPY --from=package-extract /tmp/extract/ /
-
-# Stage 4: Final image
-FROM scratch
+# Stage 3: Final image
+FROM debian:bookworm-slim
 
 # Set metadata
 LABEL maintainer="NewStart OS Team"
@@ -62,8 +50,8 @@ LABEL description="NewStart OS Standard Docker Image"
 LABEL version="V6.06.11B10"
 LABEL architecture="x86_64"
 
-# Copy system root
-COPY --from=system-root / /
+# Copy extracted system files
+COPY --from=package-extract /tmp/extract/ /
 
 # Set environment variables
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

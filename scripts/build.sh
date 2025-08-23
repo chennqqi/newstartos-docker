@@ -68,14 +68,28 @@ load_config() {
     fi
     
     # 读取配置
-    ISO_FILENAME=$(jq -r '.newstart_os.iso_filename' "$CONFIG_FILE")
-    DOWNLOAD_URL=$(jq -r '.newstart_os.download_url' "$CONFIG_FILE")
-    EXPECTED_SIZE=$(jq -r '.newstart_os.expected_size_bytes' "$CONFIG_FILE")
-    VERSION=$(jq -r '.newstart_os.version' "$CONFIG_FILE")
-    ARCHITECTURE=$(jq -r '.newstart_os.architecture' "$CONFIG_FILE")
-    TAG_PREFIX=$(jq -r '.docker.tag_prefix' "$CONFIG_FILE")
+    DEFAULT_VERSION=$(jq -r '.newstart_os.default_version' "$CONFIG_FILE")
+    VERSION=${BUILD_VERSION:-$DEFAULT_VERSION}
     
-    log_success "Configuration loaded: $VERSION ($ARCHITECTURE)"
+    # 验证版本是否存在
+    if ! jq -e ".newstart_os.versions[\"$VERSION\"]" "$CONFIG_FILE" >/dev/null 2>&1; then
+        log_error "Version $VERSION not found in configuration"
+        log_info "Available versions:"
+        jq -r '.newstart_os.versions | keys[]' "$CONFIG_FILE" | while read -r ver; do
+            log_info "  - $ver"
+        done
+        exit 1
+    fi
+    
+    # 读取版本特定配置
+    ISO_FILENAME=$(jq -r ".newstart_os.versions[\"$VERSION\"].iso_filename" "$CONFIG_FILE")
+    DOWNLOAD_URL=$(jq -r ".newstart_os.versions[\"$VERSION\"].download_url" "$CONFIG_FILE")
+    EXPECTED_SIZE=$(jq -r ".newstart_os.versions[\"$VERSION\"].expected_size_bytes" "$CONFIG_FILE")
+    VERSION_NAME=$(jq -r ".newstart_os.versions[\"$VERSION\"].version" "$CONFIG_FILE")
+    ARCHITECTURE=$(jq -r ".newstart_os.versions[\"$VERSION\"].architecture" "$CONFIG_FILE")
+    TAG_PREFIX=$(jq -r ".newstart_os.versions[\"$VERSION\"].tag_prefix" "$CONFIG_FILE")
+    
+    log_success "Configuration loaded: $VERSION_NAME ($ARCHITECTURE) - Version: $VERSION"
 }
 
 # 检查ISO文件
@@ -183,7 +197,7 @@ build_optimized() {
 # 显示帮助信息
 show_help() {
     cat << EOF
-Usage: $0 [OPTION] [TARGET]
+Usage: $0 [OPTION] [TARGET] [VERSION]
 
 Build NewStart OS Docker images from scratch.
 
@@ -192,14 +206,18 @@ TARGETS:
     optimized    Build volume-optimized version
     all          Build both versions
 
+VERSIONS:
+    v6.06.11b10  Build NewStart OS V6.06.11B10
+    v7.02.03b9   Build NewStart OS 7.02.03B9
+
 OPTIONS:
     -h, --help   Show this help message
     -v, --version Show version information
 
 EXAMPLES:
-    $0 standard          # Build standard version only
-    $0 optimized         # Build optimized version only
-    $0 all              # Build both versions
+    $0 standard v6.06.11b10     # Build standard version for V6.06.11B10
+    $0 optimized v7.02.03b9     # Build optimized version for 7.02.03B9
+    $0 all v6.06.11b10          # Build both versions for V6.06.11B10
 
 EOF
 }
@@ -207,6 +225,7 @@ EOF
 # 主函数
 main() {
     local target=""
+    local version=""
     
     # 解析命令行参数
     while [[ $# -gt 0 ]]; do
@@ -223,6 +242,10 @@ main() {
                 target="$1"
                 shift
                 ;;
+            v6.06.11b10|v7.02.03b9)
+                version="$1"
+                shift
+                ;;
             *)
                 log_error "Unknown option: $1"
                 show_help
@@ -237,8 +260,15 @@ main() {
         exit 1
     fi
     
+    if [[ -z "$version" ]]; then
+        log_warning "No version specified, using default version"
+    else
+        export BUILD_VERSION="$version"
+    fi
+    
     log_info "Starting NewStart OS Docker image build process..."
     log_info "Target: $target"
+    log_info "Version: ${BUILD_VERSION:-default}"
     
     # 检查依赖
     check_dependencies

@@ -1,4 +1,4 @@
-## 目标: 开放制作NewStart OS Docker镜像的工程
+## 目标: 开发制作NewStart OS Docker镜像的工程
 
 ## 一些辅助信息供你参考
 1. NewStart OS 维护当前目录下 名称为NewStart-CGS-Linux-MAIN.V6.06.11B10-x86_64.dvd.iso

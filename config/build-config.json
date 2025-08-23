@@ -1,0 +1,43 @@
+{
+  "newstart_os": {
+    "version": "V6.06.11B10",
+    "architecture": "x86_64",
+    "iso_filename": "NewStart-CGS-Linux-MAIN.V6.06.11B10-x86_64.dvd.iso",
+    "download_url": "https://nsosmirrors.gd-linux.com/CGSLV6/NDECGSL/V6.06.11/x86_64/NewStart-CGS-Linux-MAIN.V6.06.11B10-x86_64.dvd.iso",
+    "expected_size_bytes": 3597217792
+  },
+  "docker": {
+    "base_image": "scratch",
+    "registry": "localhost",
+    "namespace": "newstartos",
+    "tag_prefix": "v6.06.11b10"
+  },
+  "build": {
+    "parallel_jobs": 4,
+    "timeout_minutes": 120,
+    "cache_dir": "./build-cache",
+    "base_image": "alpine:3.19",
+    "use_buildkit": true,
+    "platform": "linux/amd64"
+  },
+  "packages": {
+    "essential": [
+      "systemd",
+      "systemd-sysv",
+      "systemd-pam",
+      "systemd-libs",
+      "glibc",
+      "glibc-common",
+      "bash",
+      "coreutils",
+      "util-linux"
+    ],
+    "optimized_exclude": [
+      "debuginfo",
+      "devel",
+      "doc",
+      "man",
+      "locale"
+    ]
+  }
+}

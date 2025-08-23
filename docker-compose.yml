@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # NewStart OS Standard Version
+  newstartos-standard:
+    image: newstartos:v6.06.11b10-standard
+    container_name: newstartos-standard
+    privileged: true
+    init: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /var/run/dbus:/var/run/dbus
+    ports:
+      - "2222:22"
+      - "8080:80"
+      - "8443:443"
+    environment:
+      - LANG=en_US.UTF-8
+      - LC_ALL=en_US.UTF-8
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "systemctl", "is-system-running"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - newstartos-network
+
+  # NewStart OS Optimized Version
+  newstartos-optimized:
+    image: newstartos:v6.06.11b10-optimized
+    container_name: newstartos-optimized
+    privileged: true
+    init: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /var/run/dbus:/var/run/dbus
+    ports:
+      - "2223:22"
+    environment:
+      - LANG=C
+      - LC_ALL=C
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "systemctl", "is-system-running"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - newstartos-network
+
+networks:
+  newstartos-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  newstartos-data:
+    driver: local

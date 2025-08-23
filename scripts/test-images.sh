@@ -41,8 +41,19 @@ load_config() {
         exit 1
     fi
     
-    TAG_PREFIX=$(jq -r '.docker.tag_prefix' "$CONFIG_FILE")
-    VERSION=$(jq -r '.newstart_os.version' "$CONFIG_FILE")
+    # 获取默认版本或使用指定版本
+    local version=${BUILD_VERSION:-$(jq -r '.newstart_os.default_version' "$CONFIG_FILE")}
+    
+    # 验证版本是否存在
+    if ! jq -e ".newstart_os.versions[\"$version\"]" "$CONFIG_FILE" >/dev/null 2>&1; then
+        log_error "Version $version not found in configuration"
+        exit 1
+    fi
+    
+    TAG_PREFIX=$(jq -r ".newstart_os.versions[\"$version\"].tag_prefix" "$CONFIG_FILE")
+    VERSION_NAME=$(jq -r ".newstart_os.versions[\"$version\"].version" "$CONFIG_FILE")
+    
+    log_info "Using version: $VERSION_NAME ($version) with tag prefix: $TAG_PREFIX"
 }
 
 # 测试镜像基本信息

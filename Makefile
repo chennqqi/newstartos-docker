@@ -37,8 +37,16 @@ check-deps: ## 检查构建依赖
 # 验证ISO文件
 verify-iso: ## 验证ISO文件完整性
 	@echo "验证ISO文件..."
+	@if [ -z "$(BUILD_VERSION)" ]; then \
+		echo "错误: 需要指定BUILD_VERSION参数"; \
+		echo "示例: make verify-iso BUILD_VERSION=v6.06.11b10"; \
+		exit 1; \
+	fi
 	@chmod +x $(ISO_SCRIPT)
-	@$(ISO_SCRIPT) verify $(BUILD_VERSION)
+	@$(ISO_SCRIPT) verify $(BUILD_VERSION) || { \
+		echo "ISO文件验证失败，尝试下载..."; \
+		$(ISO_SCRIPT) download $(BUILD_VERSION); \
+	}
 
 # 下载ISO文件
 download-iso: ## 下载ISO文件

@@ -5,6 +5,9 @@
 
 set -euo pipefail
 
+# 陷阱处理，确保清理工作
+trap cleanup EXIT
+
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -18,6 +21,37 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # 配置文件
 CONFIG_FILE="$PROJECT_ROOT/config/build-config.json"
+
+# 全局变量
+BUILD_CACHE_DIR=""
+TEMP_FILES=()
+
+# 清理函数
+cleanup() {
+    local exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        log_error "Build failed with exit code $exit_code. Cleaning up..."
+    fi
+    
+    # 清理临时文件
+    for temp_file in "${TEMP_FILES[@]}"; do
+        if [[ -f "$temp_file" ]]; then
+            rm -f "$temp_file"
+            log_info "Removed temp file: $temp_file"
+        fi
+    done
+    
+    # 清理Docker构建缓存（如果构建失败）
+    if [[ $exit_code -ne 0 ]]; then
+        log_info "Cleaning Docker build cache..."
+        docker builder prune -f >/dev/null 2>&1 || true
+    fi
+}
+
+# 添加临时文件到清理列表
+add_temp_file() {
+    TEMP_FILES+=("$1")
+}
 
 # 日志函数
 log_info() {
@@ -120,28 +154,56 @@ download_iso() {
     
     local iso_path="$PROJECT_ROOT/iso/$ISO_FILENAME"
     local temp_path="$iso_path.tmp"
+    local retry_count=3
+    local retry_delay=5
+    
+    # 添加临时文件到清理列表
+    add_temp_file "$temp_path"
     
     # 创建iso目录
     mkdir -p "$(dirname "$iso_path")"
     
-    # 下载文件
-    if curl -L -o "$temp_path" "$DOWNLOAD_URL"; then
-        # 验证大小
-        local actual_size=$(stat -c%s "$temp_path" 2>/dev/null || stat -f%z "$temp_path" 2>/dev/null)
+    # 重试下载
+    for ((i=1; i<=retry_count; i++)); do
+        log_info "Download attempt $i of $retry_count..."
         
-        if [[ "$actual_size" == "$EXPECTED_SIZE" ]]; then
-            mv "$temp_path" "$iso_path"
-            log_success "ISO file downloaded successfully: $iso_path"
-        else
+        if curl -L --fail --show-error --progress-bar \
+            --connect-timeout 30 --max-time 3600 \
+            -o "$temp_path" "$DOWNLOAD_URL"; then
+            
+            # 验证大小
+            local actual_size=$(stat -c%s "$temp_path" 2>/dev/null || stat -f%z "$temp_path" 2>/dev/null)
+            
+            if [[ "$EXPECTED_SIZE" -gt 0 && "$actual_size" == "$EXPECTED_SIZE" ]]; then
+                mv "$temp_path" "$iso_path"
+                log_success "ISO file downloaded successfully: $iso_path"
+                return 0
+            elif [[ "$EXPECTED_SIZE" -eq 0 ]]; then
+                # 如果配置中没有设置期望大小，只检查文件是否存在且不为空
+                if [[ "$actual_size" -gt 0 ]]; then
+                    mv "$temp_path" "$iso_path"
+                    log_warning "ISO file downloaded but size not verified (expected_size=0): $iso_path"
+                    log_info "Actual size: $actual_size bytes"
+                    return 0
+                fi
+            else
+                log_error "Downloaded file size mismatch. Expected: $EXPECTED_SIZE, Actual: $actual_size"
+            fi
+            
             rm -f "$temp_path"
-            log_error "Downloaded file size mismatch. Expected: $EXPECTED_SIZE, Actual: $actual_size"
-            exit 1
+        else
+            log_warning "Download attempt $i failed"
         fi
-    else
-        rm -f "$temp_path"
-        log_error "Failed to download ISO file"
-        exit 1
-    fi
+        
+        if [[ $i -lt $retry_count ]]; then
+            log_info "Retrying in $retry_delay seconds..."
+            sleep $retry_delay
+            retry_delay=$((retry_delay * 2))  # 指数退避
+        fi
+    done
+    
+    log_error "Failed to download ISO file after $retry_count attempts"
+    return 1
 }
 
 # 构建标准版本
@@ -157,8 +219,12 @@ build_standard() {
     fi
     
     log_info "Building with tag: $tag"
+    log_info "Using ISO file: $ISO_FILENAME"
     
-    if docker build -f "$dockerfile" -t "$tag" "$PROJECT_ROOT"; then
+    if docker build -f "$dockerfile" \
+        --build-arg BUILD_VERSION="$VERSION" \
+        --build-arg ISO_FILENAME="$ISO_FILENAME" \
+        -t "$tag" "$PROJECT_ROOT"; then
         log_success "Standard version built successfully: $tag"
         
         # 显示镜像信息
@@ -182,8 +248,12 @@ build_optimized() {
     fi
     
     log_info "Building with tag: $tag"
+    log_info "Using ISO file: $ISO_FILENAME"
     
-    if docker build -f "$dockerfile" -t "$tag" "$PROJECT_ROOT"; then
+    if docker build -f "$dockerfile" \
+        --build-arg BUILD_VERSION="$VERSION" \
+        --build-arg ISO_FILENAME="$ISO_FILENAME" \
+        -t "$tag" "$PROJECT_ROOT"; then
         log_success "Optimized version built successfully: $tag"
         
         # 显示镜像信息

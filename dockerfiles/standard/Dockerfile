@@ -6,7 +6,7 @@ ARG BUILD_VERSION=v6.06.11b10
 ARG ISO_FILENAME
 
 # Stage 1: ISO extraction and package preparation (single stage for efficiency)
-FROM debian:bookworm-slim AS iso-processor
+FROM debian:bookworm-slim AS iso-processor-initial
 
 # Install required tools for package extraction
 RUN apt-get update && \
@@ -45,7 +45,7 @@ ARG BUILD_VERSION=v6.06.11b10
 ARG ISO_FILENAME
 
 # Stage 1: ISO extraction and package preparation with BuildKit cache mount
-FROM debian:bookworm-slim AS iso-processor
+FROM debian:bookworm-slim AS iso-processor-main
 
 # Install required tools for package extraction
 RUN apt-get update && \
@@ -125,8 +125,30 @@ RUN --mount=type=bind,source=iso,target=/mnt/iso,readonly \
     rpm --initdb && \
     \
     # Install essential packages from extracted RPMs \
-    echo "Installing essential packages..."; \
+    echo "Installing essential packages...";
     find /tmp/packages -name "*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    # 安装yum和必要的包管理工具
+    find /tmp/packages -name "yum-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "python-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "python3-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "dnf-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    # 安装基本系统工具
+    find /tmp/packages -name "coreutils-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "bash-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "util-linux-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "procps-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "iproute-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "iputils-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "openssh-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "vim-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "less-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "which-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "tar-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "gzip-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "bzip2-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "grep-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "sed-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    find /tmp/packages -name "gawk-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
     \
     # Configure systemd for container use \
     echo "Configuring systemd..."; \
@@ -134,10 +156,22 @@ RUN --mount=type=bind,source=iso,target=/mnt/iso,readonly \
     systemctl enable systemd-remount-fs.service 2>/dev/null || true && \
     systemctl enable systemd-sysctl.service 2>/dev/null || true
 
-# Create NewStart OS specific files and init system in the same layer
-RUN echo "NewStart OS ${BUILD_VERSION}" > /etc/issue && \
-    echo "NewStart OS ${BUILD_VERSION}" > /etc/os-release && \
-    echo "NewStart OS ${BUILD_VERSION}" > /etc/redhat-release && \
+# Create NewStart OS specific files
+RUN echo "NewStart OS V6.06.11B10" > /etc/issue && \
+    echo "NAME=\"NewStart OS\"" > /etc/os-release && \
+    echo "VERSION=\"V6.06.11B10\"" >> /etc/os-release && \
+    echo "ID=\"newstartos\"" >> /etc/os-release && \
+    echo "VERSION_ID=\"V6.06.11B10\"" >> /etc/os-release && \
+    echo "PRETTY_NAME=\"NewStart OS V6.06.11B10\"" >> /etc/os-release && \
+    echo "ANSI_COLOR=\"0;31\"" >> /etc/os-release && \
+    echo "CPE_NAME=\"cpe:/o:newstart:os:V6.06.11B10:GA:server\"" >> /etc/os-release && \
+    echo "HOME_URL=\"https://www.newstartos.com/\"" >> /etc/os-release && \
+    echo "BUG_REPORT_URL=\"https://www.newstartos.com/\"" >> /etc/os-release && \
+    echo "REDHAT_BUGZILLA_PRODUCT=\"NewStart OS\"" >> /etc/os-release && \
+    echo "REDHAT_BUGZILLA_PRODUCT_VERSION=V6.06.11B10" >> /etc/os-release && \
+    echo "REDHAT_SUPPORT_PRODUCT=\"NewStart OS\"" >> /etc/os-release && \
+    echo "REDHAT_SUPPORT_PRODUCT_VERSION=V6.06.11B10" >> /etc/os-release && \
+    echo "NewStart OS V6.06.11B10" > /etc/redhat-release && \
     \
     # Create optimized init script \
     echo '#!/bin/bash\n\
@@ -150,12 +184,30 @@ mkdir -p /var/run /var/lock /tmp /var/tmp\n\
 exec /usr/lib/systemd/systemd' > /usr/local/bin/init.sh && \
     chmod +x /usr/local/bin/init.sh && \
     \
-    # Clean up package files to reduce layer size \
-    echo "Cleaning up package files..."; \
-    rm -rf /tmp/packages
+    # Clean up package files and unnecessary files to reduce image size \
+    echo "Cleaning up package files and optimizing image size...";\
+    # 保留yum相关的配置文件和缓存目录\
+    mkdir -p /var/cache/yum && \
+    mkdir -p /var/lib/yum && \
+    # 删除不必要的文件以减小镜像大小\
+    rm -rf /tmp/packages \
+           /usr/share/doc/* \
+           /usr/share/man/* \
+           /usr/share/info/* \
+           /var/cache/apt/* \
+           /var/lib/apt/lists/* \
+           /var/tmp/* \
+           /tmp/* \
+    && find /var/log -type f -delete \
+    && find /usr -name "*.a" -delete \
+    && find /lib -name "*.a" -delete \
+    && find /usr -name "*.la" -delete \
+    && find /lib -name "*.la" -delete \
+    && find /usr -type f -name "*.py[co]" -delete \
+    && find /usr -type d -name "__pycache__" -delete
 
 # Stage 2: Final optimized image 
-FROM debian:bookworm-slim
+FROM scratch
 
 # Set comprehensive metadata
 LABEL maintainer="NewStart OS Team"
@@ -168,7 +220,7 @@ LABEL build.cache="enabled"
 LABEL build.iso-handling="cache-optimized"
 
 # Copy the complete prepared system root in one operation
-COPY --from=iso-processor / /
+COPY --from=iso-processor-main / /
 
 # Set environment variables for NewStart OS
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

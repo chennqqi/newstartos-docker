@@ -240,7 +240,7 @@ build_standard() {
     local build_timeout=10800
     
     if timeout $build_timeout docker build -f "$dockerfile" \
-        --build-arg BUILD_VERSION="$VERSION" \
+        --build-arg BUILD_VERSION="$VERSION_NAME" \
         --build-arg ISO_FILENAME="$ISO_FILENAME" \
         --progress=plain \
         -t "$tag" "$PROJECT_ROOT"; then
@@ -284,7 +284,7 @@ build_optimized() {
     local build_timeout=10800
     
     if timeout $build_timeout docker build -f "$dockerfile" \
-        --build-arg BUILD_VERSION="$VERSION" \
+        --build-arg BUILD_VERSION="$VERSION_NAME" \
         --build-arg ISO_FILENAME="$ISO_FILENAME" \
         --progress=plain \
         -t "$tag" "$PROJECT_ROOT"; then

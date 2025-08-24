@@ -37,8 +37,8 @@ RUN mkdir -p /{bin,boot,dev,etc,home,lib,lib64,media,mnt,opt,proc,root,run,sbin,
     && mkdir -p /tmp/{extract,packages,iso-content}
 
 # Process ISO with BuildKit cache mount to avoid repeated copies
-RUN --mount=type=bind,source=iso,target=/mnt/iso,readonly \
-    --mount=type=cache,target=/tmp/iso-cache,sharing=locked \
+RUN \
+    \
     set -ex; \
     \
     # Check if ISO is already cached \

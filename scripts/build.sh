@@ -89,6 +89,19 @@ check_dependencies() {
         exit 1
     fi
     
+    # Enable Docker BuildKit for cache optimization
+    export DOCKER_BUILDKIT=1
+    export BUILDKIT_PROGRESS=plain
+    
+    # Check if BuildKit is available
+    if docker buildx version &> /dev/null; then
+        log_success "Docker BuildKit is available and enabled"
+        USE_BUILDX=true
+    else
+        log_warning "Docker BuildKit not available, using legacy builder (may be slower)"
+        USE_BUILDX=false
+    fi
+    
     log_success "Dependencies check passed"
 }
 
@@ -208,7 +221,7 @@ download_iso() {
 
 # 构建标准版本
 build_standard() {
-    log_info "Building standard version..."
+    log_info "Building standard version with BuildKit cache optimization..."
     
     local dockerfile="$PROJECT_ROOT/dockerfiles/standard/Dockerfile"
     local tag="newstartos:${TAG_PREFIX}-standard"
@@ -220,24 +233,39 @@ build_standard() {
     
     log_info "Building with tag: $tag"
     log_info "Using ISO file: $ISO_FILENAME"
+    log_info "BuildKit enabled: ${USE_BUILDX:-false}"
+    log_info "Cache optimization: enabled"
     
-    if docker build -f "$dockerfile" \
+    # Set build timeout (3 hours for large ISO processing)
+    local build_timeout=10800
+    
+    if timeout $build_timeout docker build -f "$dockerfile" \
         --build-arg BUILD_VERSION="$VERSION" \
         --build-arg ISO_FILENAME="$ISO_FILENAME" \
+        --progress=plain \
         -t "$tag" "$PROJECT_ROOT"; then
         log_success "Standard version built successfully: $tag"
         
         # 显示镜像信息
         docker images "$tag"
+        
+        # 显示缓存使用情况
+        log_info "Build cache status:"
+        docker system df | head -4
     else
-        log_error "Failed to build standard version"
+        local exit_code=$?
+        if [[ $exit_code -eq 124 ]]; then
+            log_error "Build timeout after $build_timeout seconds"
+        else
+            log_error "Failed to build standard version (exit code: $exit_code)"
+        fi
         exit 1
     fi
 }
 
 # 构建优化版本
 build_optimized() {
-    log_info "Building optimized version..."
+    log_info "Building optimized version with BuildKit cache optimization..."
     
     local dockerfile="$PROJECT_ROOT/dockerfiles/optimized/Dockerfile"
     local tag="newstartos:${TAG_PREFIX}-optimized"
@@ -249,17 +277,32 @@ build_optimized() {
     
     log_info "Building with tag: $tag"
     log_info "Using ISO file: $ISO_FILENAME"
+    log_info "BuildKit enabled: ${USE_BUILDX:-false}"
+    log_info "Cache optimization: enabled"
     
-    if docker build -f "$dockerfile" \
+    # Set build timeout (3 hours for large ISO processing)
+    local build_timeout=10800
+    
+    if timeout $build_timeout docker build -f "$dockerfile" \
         --build-arg BUILD_VERSION="$VERSION" \
         --build-arg ISO_FILENAME="$ISO_FILENAME" \
+        --progress=plain \
         -t "$tag" "$PROJECT_ROOT"; then
         log_success "Optimized version built successfully: $tag"
         
         # 显示镜像信息
         docker images "$tag"
+        
+        # 显示缓存使用情况
+        log_info "Build cache status:"
+        docker system df | head -4
     else
-        log_error "Failed to build optimized version"
+        local exit_code=$?
+        if [[ $exit_code -eq 124 ]]; then
+            log_error "Build timeout after $build_timeout seconds"
+        else
+            log_error "Failed to build optimized version (exit code: $exit_code)"
+        fi
         exit 1
     fi
 }

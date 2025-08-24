@@ -1,18 +1,12 @@
 # NewStart OS Standard Docker Image
-# Built from scratch for maximum compatibility
+# Optimized build process to handle large ISO files efficiently
 
 # Build arguments for version support
 ARG BUILD_VERSION=v6.06.11b10
 ARG ISO_FILENAME
 
-# Multi-stage build to extract packages from ISO
-FROM scratch AS iso-extract
-
-# Copy ISO file to extract packages
-COPY iso/${ISO_FILENAME} /tmp/newstart.iso
-
-# Stage 2: Package extraction and system preparation
-FROM debian:bookworm-slim AS package-extract
+# Stage 1: ISO extraction and package preparation (single stage for efficiency)
+FROM debian:bookworm-slim AS iso-processor
 
 # Install required tools for package extraction
 RUN apt-get update && \
@@ -26,80 +20,169 @@ RUN apt-get update && \
         tar \
         gzip \
         xz-utils \
-        curl \
-        wget \
         util-linux \
-        mount \
+        cpio \
+        file \
+        bash \
+        coreutils \
+        procps \
+        systemd \
         && apt-get clean && \
         rm -rf /var/lib/apt/lists/*
 
-# Create mount point and extract ISO
-RUN mkdir -p /mnt/iso /tmp/extract /tmp/packages
-COPY iso/${ISO_FILENAME} /tmp/newstart.iso
+# Create all necessary directories in one step
+RUN mkdir -p /{bin,boot,dev,etc,home,lib,lib64,media,mnt,opt,proc,root,run,sbin,srv,sys,tmp,usr,var} \
+    && mkdir -p /usr/{bin,lib,lib64,sbin,share,local} \
+    && mkdir -p /var/{lib,log,cache,run,spool,tmp} \
+    && mkdir -p /etc/{sysconfig,init.d,rc.d,systemd} \
+    && mkdir -p /tmp/{extract,packages,iso-content}
 
-# Extract ISO contents using loop mount (more reliable than 7z)
-RUN mount -o loop /tmp/newstart.iso /mnt/iso && \
-    rsync -av /mnt/iso/ /tmp/extract/ && \
-    umount /mnt/iso && \
-    find /tmp/extract -name "*.rpm" -exec cp {} /tmp/packages/ \; 2>/dev/null || true
+# NewStart OS Standard Docker Image
+# BuildKit cache-optimized build process to handle large ISO files efficiently
 
-# Extract squashfs if present and prepare system
-RUN if [ -f /tmp/extract/LiveOS/squashfs.img ]; then \
-        mkdir -p /mnt/squashfs && \
-        mount -o loop /tmp/extract/LiveOS/squashfs.img /mnt/squashfs && \
-        rsync -av /mnt/squashfs/ /tmp/extract/ && \
-        umount /mnt/squashfs; \
-    fi
+# Build arguments for version support
+ARG BUILD_VERSION=v6.06.11b10
+ARG ISO_FILENAME
 
-# Create essential directories and initialize system in extract directory
-RUN mkdir -p /tmp/extract/{var/lib/rpm,var/lib/dnf,var/cache/dnf,var/log,tmp,var/tmp,dev,proc,sys} && \
-    mkdir -p /tmp/extract/etc/systemd/{system,user} && \
-    mkdir -p /tmp/extract/run/systemd/system && \
-    mkdir -p /tmp/extract/usr/local/bin
+# Stage 1: ISO extraction and package preparation with BuildKit cache mount
+FROM debian:bookworm-slim AS iso-processor
 
-# Initialize RPM database in extract directory
-RUN chroot /tmp/extract rpm --initdb || true
+# Install required tools for package extraction
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        squashfs-tools \
+        genisoimage \
+        xorriso \
+        rpm \
+        createrepo-c \
+        rsync \
+        tar \
+        gzip \
+        xz-utils \
+        util-linux \
+        cpio \
+        file \
+        bash \
+        coreutils \
+        procps \
+        systemd \
+        && apt-get clean && \
+        rm -rf /var/lib/apt/lists/*
 
-# Install essential packages from extracted RPMs
-RUN find /tmp/packages -name "*.rpm" -exec chroot /tmp/extract rpm -ivh --nodeps {} \; 2>/dev/null || true
+# Create all necessary directories in one step
+RUN mkdir -p /{bin,boot,dev,etc,home,lib,lib64,media,mnt,opt,proc,root,run,sbin,srv,sys,tmp,usr,var} \
+    && mkdir -p /usr/{bin,lib,lib64,sbin,share,local} \
+    && mkdir -p /var/{lib,log,cache,run,spool,tmp} \
+    && mkdir -p /etc/{sysconfig,init.d,rc.d,systemd} \
+    && mkdir -p /tmp/{extract,packages,iso-content}
 
-# Configure systemd in extract directory
-RUN chroot /tmp/extract systemctl enable systemd-remount-fs.service 2>/dev/null || true && \
-    chroot /tmp/extract systemctl enable systemd-sysctl.service 2>/dev/null || true && \
-    chroot /tmp/extract systemctl enable systemd-udev-trigger.service 2>/dev/null || true
+# Process ISO with BuildKit cache mount to avoid repeated copies
+RUN --mount=type=bind,source=iso,target=/mnt/iso,readonly \
+    --mount=type=cache,target=/tmp/iso-cache,sharing=locked \
+    set -ex; \
+    \
+    # Check if ISO is already cached \
+    if [ -f "/tmp/iso-cache/${ISO_FILENAME}.extracted" ]; then \
+        echo "Using cached ISO extraction..."; \
+        cp -r /tmp/iso-cache/extract/* /tmp/extract/ 2>/dev/null || true; \
+        cp -r /tmp/iso-cache/packages/* /tmp/packages/ 2>/dev/null || true; \
+    else \
+        echo "Processing ISO file with cache optimization..."; \
+        \
+        # Extract ISO contents directly using xorriso \
+        echo "Extracting ISO contents..."; \
+        xorriso -osirrox on -indev "/mnt/iso/${ISO_FILENAME}" -extract / /tmp/iso-content/ && \
+        \
+        # Copy essential content to extract directory \
+        echo "Processing extracted content..."; \
+        rsync -a /tmp/iso-content/ /tmp/extract/ && \
+        \
+        # Find and copy RPM packages efficiently \
+        echo "Collecting RPM packages..."; \
+        find /tmp/extract -name "*.rpm" -exec cp {} /tmp/packages/ \; 2>/dev/null || true && \
+        \
+        # Extract squashfs if present \
+        if [ -f /tmp/extract/LiveOS/squashfs.img ]; then \
+            echo "Extracting squashfs..."; \
+            unsquashfs -d /tmp/squashfs-root /tmp/extract/LiveOS/squashfs.img && \
+            rsync -a /tmp/squashfs-root/ /tmp/extract/ && \
+            rm -rf /tmp/squashfs-root; \
+        fi && \
+        \
+        # Cache extracted content for future builds \
+        echo "Caching extraction results..."; \
+        mkdir -p /tmp/iso-cache/extract /tmp/iso-cache/packages && \
+        cp -r /tmp/extract/* /tmp/iso-cache/extract/ 2>/dev/null || true && \
+        cp -r /tmp/packages/* /tmp/iso-cache/packages/ 2>/dev/null || true && \
+        touch "/tmp/iso-cache/${ISO_FILENAME}.extracted"; \
+    fi && \
+    \
+    # Clean up iso-content to save space \
+    rm -rf /tmp/iso-content && \
+    \
+    # Initialize RPM database and install packages \
+    echo "Setting up RPM database..."; \
+    rpm --initdb && \
+    \
+    # Install essential packages from extracted RPMs \
+    echo "Installing essential packages..."; \
+    find /tmp/packages -name "*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
+    \
+    # Configure systemd for container use \
+    echo "Configuring systemd..."; \
+    systemctl set-default multi-user.target 2>/dev/null || true && \
+    systemctl enable systemd-remount-fs.service 2>/dev/null || true && \
+    systemctl enable systemd-sysctl.service 2>/dev/null || true
 
-# Set default target in extract directory
-RUN ln -sf /lib/systemd/system/multi-user.target /tmp/extract/etc/systemd/system/default.target 2>/dev/null || true
+# Create NewStart OS specific files and init system in the same layer
+RUN echo "NewStart OS ${BUILD_VERSION}" > /etc/issue && \
+    echo "NewStart OS ${BUILD_VERSION}" > /etc/os-release && \
+    echo "NewStart OS ${BUILD_VERSION}" > /etc/redhat-release && \
+    \
+    # Create optimized init script \
+    echo '#!/bin/bash\n\
+echo "Starting NewStart OS Standard '"${BUILD_VERSION}"' container..."\n\
+\n\
+# Create necessary runtime directories\n\
+mkdir -p /var/run /var/lock /tmp /var/tmp\n\
+\n\
+# Start systemd as init system\n\
+exec /usr/lib/systemd/systemd' > /usr/local/bin/init.sh && \
+    chmod +x /usr/local/bin/init.sh && \
+    \
+    # Clean up package files to reduce layer size \
+    echo "Cleaning up package files..."; \
+    rm -rf /tmp/packages
 
-# Create init script in extract directory
-RUN echo '#!/bin/bash\n\
-echo "Starting NewStart OS '"${BUILD_VERSION}"' container..."\n\
-exec "/usr/lib/systemd/systemd"' > /tmp/extract/usr/local/bin/init.sh && \
-    chmod +x /tmp/extract/usr/local/bin/init.sh
+# Stage 2: Final optimized image 
+FROM debian:bookworm-slim
 
-# Stage 3: Final image from scratch (truly minimal)
-FROM scratch
-
-# Set metadata
+# Set comprehensive metadata
 LABEL maintainer="NewStart OS Team"
-LABEL description="NewStart OS Standard Docker Image - Built from Scratch"
+LABEL description="NewStart OS Standard Docker Image - BuildKit Cache Optimized"
 LABEL version="${BUILD_VERSION}"
 LABEL architecture="x86_64"
+LABEL variant="standard"
+LABEL build.optimized="true"
+LABEL build.cache="enabled"
+LABEL build.iso-handling="cache-optimized"
 
-# Copy the complete prepared system root
-COPY --from=package-extract /tmp/extract/ /
+# Copy the complete prepared system root in one operation
+COPY --from=iso-processor / /
 
-# Set environment variables
+# Set environment variables for NewStart OS
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV LANG="en_US.UTF-8"
 ENV LC_ALL="en_US.UTF-8"
+ENV TERM="xterm"
+ENV NEWSTART_VERSION="${BUILD_VERSION}"
 
-# Expose common ports
+# Expose standard ports
 EXPOSE 22 80 443
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD test -f /usr/lib/systemd/systemd || exit 1
+# Optimized health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD test -x /usr/local/bin/init.sh && systemctl is-system-running --quiet || exit 1
 
-# Default command
+# Use optimized init script
 CMD ["/usr/local/bin/init.sh"]

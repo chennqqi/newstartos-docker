@@ -161,7 +161,7 @@ show_iso_info() {
     
     log_info "ISO File Information:"
     log_info "Path: $iso_path"
-    log_info "Version: $version"
+    log_info "Version: $VERSION_NAME"
     log_info "Expected Size: $EXPECTED_SIZE bytes"
     
     local actual_size=$(stat -c%s "$iso_path" 2>/dev/null || stat -f%z "$iso_path" 2>/dev/null)

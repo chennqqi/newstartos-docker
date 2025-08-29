@@ -41,11 +41,19 @@
       "systemd-sysv",
       "systemd-pam",
       "systemd-libs",
+      "systemd-udev",
+      "systemd-networkd",
+      "systemd-resolved",
       "glibc",
       "glibc-common",
       "bash",
       "coreutils",
-      "util-linux"
+      "util-linux",
+      "procps-ng",
+      "iproute",
+      "iputils",
+      "openssh-server",
+      "openssh-clients"
     ],
     "optimized_exclude": [
       "debuginfo",

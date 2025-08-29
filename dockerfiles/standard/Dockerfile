@@ -1,43 +1,4 @@
 # NewStart OS Standard Docker Image
-# Optimized build process to handle large ISO files efficiently
-
-# Build arguments for version support
-ARG BUILD_VERSION=v6.06.11b10
-ARG ISO_FILENAME
-
-# Stage 1: ISO extraction and package preparation (single stage for efficiency)
-FROM debian:bookworm-slim AS iso-processor-initial
-
-# Install required tools for package extraction
-RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        squashfs-tools \
-        genisoimage \
-        xorriso \
-        rpm \
-        createrepo-c \
-        rsync \
-        tar \
-        gzip \
-        xz-utils \
-        util-linux \
-        cpio \
-        file \
-        bash \
-        coreutils \
-        procps \
-        systemd \
-        && apt-get clean && \
-        rm -rf /var/lib/apt/lists/*
-
-# Create all necessary directories in one step
-RUN mkdir -p /{bin,boot,dev,etc,home,lib,lib64,media,mnt,opt,proc,root,run,sbin,srv,sys,tmp,usr,var} \
-    && mkdir -p /usr/{bin,lib,lib64,sbin,share,local} \
-    && mkdir -p /var/{lib,log,cache,run,spool,tmp} \
-    && mkdir -p /etc/{sysconfig,init.d,rc.d,systemd} \
-    && mkdir -p /tmp/{extract,packages,iso-content}
-
-# NewStart OS Standard Docker Image
 # BuildKit cache-optimized build process to handle large ISO files efficiently
 
 # Build arguments for version support
@@ -125,7 +86,7 @@ RUN --mount=type=bind,source=iso,target=/mnt/iso,readonly \
     rpm --initdb && \
     \
     # Install essential packages from extracted RPMs \
-    echo "Installing essential packages...";
+    echo "Installing essential packages..." && \
     find /tmp/packages -name "*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \
     # 安装yum和必要的包管理工具
     find /tmp/packages -name "yum-*.rpm" -exec rpm -ivh --nodeps --root / {} \; 2>/dev/null || true && \

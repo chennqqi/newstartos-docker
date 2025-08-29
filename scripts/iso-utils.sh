@@ -91,6 +91,18 @@ download_iso() {
     local iso_path="$PROJECT_ROOT/iso/$ISO_FILENAME"
     local temp_path="$iso_path.tmp"
     
+    # 首先检查本地是否已存在有效的ISO文件
+    if [[ -f "$iso_path" ]]; then
+        log_info "Checking existing ISO file: $iso_path"
+        if verify_iso "$iso_path"; then
+            log_success "Valid ISO file already exists, skipping download"
+            return 0
+        else
+            log_warning "Existing ISO file is invalid, will re-download"
+            rm -f "$iso_path"
+        fi
+    fi
+    
     log_info "Downloading ISO file from: $DOWNLOAD_URL"
     log_info "Target path: $iso_path"
     

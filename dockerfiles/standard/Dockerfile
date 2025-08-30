@@ -6,29 +6,23 @@ ARG BUILD_VERSION=v6.06.11b10
 ARG ISO_FILENAME
 
 # Stage 1: ISO extraction and package preparation with BuildKit cache mount
-FROM debian:bookworm-slim AS iso-processor-main
+FROM rockylinux:8-minimal AS iso-processor-main
 
-# Install required tools for package extraction
-RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        squashfs-tools \
-        genisoimage \
-        xorriso \
+# Install required tools for package extraction (Rocky 8 compatible)
+RUN microdnf install -y \
         rpm \
-        createrepo-c \
         rsync \
         tar \
         gzip \
-        xz-utils \
+        xz \
         util-linux \
         cpio \
         file \
         bash \
-        coreutils \
-        procps \
-        systemd \
-        && apt-get clean && \
-        rm -rf /var/lib/apt/lists/*
+        procps-ng \
+        yum \
+        findutils \
+        && microdnf clean all
 
 # Create all necessary directories in one step
 RUN mkdir -p /{bin,boot,dev,etc,home,lib,lib64,media,mnt,opt,proc,root,run,sbin,srv,sys,tmp,usr,var} \
@@ -117,7 +111,7 @@ RUN --mount=type=bind,source=iso,target=/mnt/iso,readonly \
     systemctl enable systemd-remount-fs.service 2>/dev/null || true && \
     systemctl enable systemd-sysctl.service 2>/dev/null || true
 
-# Create NewStart OS specific files
+# Configure NewStart OS identity and yum repositories
 RUN echo "NewStart OS V6.06.11B10" > /etc/issue && \
     echo "NAME=\"NewStart OS\"" > /etc/os-release && \
     echo "VERSION=\"V6.06.11B10\"" >> /etc/os-release && \
@@ -134,23 +128,28 @@ RUN echo "NewStart OS V6.06.11B10" > /etc/issue && \
     echo "REDHAT_SUPPORT_PRODUCT_VERSION=V6.06.11B10" >> /etc/os-release && \
     echo "NewStart OS V6.06.11B10" > /etc/redhat-release && \
     \
-    # Create optimized init script \
-    echo '#!/bin/bash\n\
-echo "Starting NewStart OS Standard '"${BUILD_VERSION}"' container..."\n\
-\n\
-# Create necessary runtime directories\n\
-mkdir -p /var/run /var/lock /tmp /var/tmp\n\
-\n\
-# Start systemd as init system\n\
-exec /usr/lib/systemd/systemd' > /usr/local/bin/init.sh && \
+    # Replace Rocky 8 yum repositories with NewStart OS configuration \
+    rm -rf /etc/yum.repos.d/* && \
+    echo '[newstartos-base]' > /etc/yum.repos.d/newstartos.repo && \
+    echo 'name=NewStart OS Base Repository' >> /etc/yum.repos.d/newstartos.repo && \
+    echo 'baseurl=https://repo.newstartos.com/v6.06.11b10/base/' >> /etc/yum.repos.d/newstartos.repo && \
+    echo 'enabled=1' >> /etc/yum.repos.d/newstartos.repo && \
+    echo 'gpgcheck=0' >> /etc/yum.repos.d/newstartos.repo && \
+    echo '' >> /etc/yum.repos.d/newstartos.repo && \
+    echo '[newstartos-updates]' >> /etc/yum.repos.d/newstartos.repo && \
+    echo 'name=NewStart OS Updates Repository' >> /etc/yum.repos.d/newstartos.repo && \
+    echo 'baseurl=https://repo.newstartos.com/v6.06.11b10/updates/' >> /etc/yum.repos.d/newstartos.repo && \
+    echo 'enabled=1' >> /etc/yum.repos.d/newstartos.repo && \
+    echo 'gpgcheck=0' >> /etc/yum.repos.d/newstartos.repo && \
+    \
+    # Create init script for systemd compatibility \
+    echo '#!/bin/bash\necho "Starting NewStart OS Standard '"${BUILD_VERSION}"' container..."\n\nmkdir -p /var/run /var/lock /tmp /var/tmp\n\nexec /usr/lib/systemd/systemd' > /usr/local/bin/init.sh && \
     chmod +x /usr/local/bin/init.sh && \
     \
-    # Clean up package files and unnecessary files to reduce image size \
-    echo "Cleaning up package files and optimizing image size...";\
-    # 保留yum相关的配置文件和缓存目录\
+    # Final cleanup and optimization \
+    echo "Cleaning up package files and optimizing image size..."; \
     mkdir -p /var/cache/yum && \
     mkdir -p /var/lib/yum && \
-    # 删除不必要的文件以减小镜像大小\
     rm -rf /tmp/packages \
            /usr/share/doc/* \
            /usr/share/man/* \
@@ -185,8 +184,8 @@ COPY --from=iso-processor-main / /
 
 # Set environment variables for NewStart OS
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ENV LANG="en_US.UTF-8"
-ENV LC_ALL="en_US.UTF-8"
+ENV LANG="zh_CN.UTF-8"
+ENV LC_ALL="zh_CN.UTF-8"
 ENV TERM="xterm"
 ENV NEWSTART_VERSION="${BUILD_VERSION}"
 

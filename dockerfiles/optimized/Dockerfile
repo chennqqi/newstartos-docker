@@ -123,8 +123,8 @@ COPY --from=optimization / /
 
 # Set environment variables
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ENV LANG="C"
-ENV LC_ALL="C"
+ENV LANG="zh_CN.UTF-8"
+ENV LC_ALL="zh_CN.UTF-8"
 ENV TERM="xterm"
 ENV HOME="/root"
 ENV USER="root"

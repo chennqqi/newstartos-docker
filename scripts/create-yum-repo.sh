@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$PROJECT_ROOT/config/build-config.json"
 YUM_REPO_DIR="$PROJECT_ROOT/yum-repo"
+ISO_DIR="$PROJECT_ROOT/iso"
 MOUNT_POINT="/tmp/newstartos-iso-mount"
 
 # Colors for output
@@ -52,7 +53,7 @@ trap cleanup EXIT
 
 # Check dependencies
 check_dependencies() {
-    local deps=("jq" "createrepo" "rsync")
+    local deps=("jq" "createrepo" "rsync" "wget" "curl")
     local missing=()
     
     for dep in "${deps[@]}"; do
@@ -78,12 +79,95 @@ get_version_info() {
         return 1
     fi
     
-    jq -r ".newstart_os.versions.${version_key}.${field}" "$CONFIG_FILE"
+    jq -r ".newstart_os.versions[\"${version_key}\"].${field}" "$CONFIG_FILE"
+}
+
+# Download ISO file if not exists
+download_iso() {
+    local version_key="$1"
+    local iso_filename download_url expected_size
+    
+    iso_filename=$(get_version_info "$version_key" "iso_filename")
+    download_url=$(get_version_info "$version_key" "download_url")
+    expected_size=$(get_version_info "$version_key" "expected_size_bytes")
+    
+    if [[ "$iso_filename" == "null" || "$download_url" == "null" ]]; then
+        log_error "Missing ISO filename or download URL for version $version_key"
+        return 1
+    fi
+    
+    # Ensure ISO directory exists
+    mkdir -p "$ISO_DIR"
+    
+    local iso_path="$ISO_DIR/$iso_filename"
+    
+    # Check if ISO already exists and has correct size
+    if [[ -f "$iso_path" ]]; then
+        if [[ "$expected_size" != "null" && "$expected_size" != "0" ]]; then
+            local actual_size=$(stat -c%s "$iso_path" 2>/dev/null || echo "0")
+            if [[ "$actual_size" == "$expected_size" ]]; then
+                log_info "ISO file already exists with correct size: $iso_filename"
+                return 0
+            else
+                log_warning "ISO file exists but size mismatch (expected: $expected_size, actual: $actual_size)"
+                log_info "Re-downloading ISO file..."
+            fi
+        else
+            log_info "ISO file already exists: $iso_filename"
+            return 0
+        fi
+    fi
+    
+    log_info "Downloading ISO: $iso_filename"
+    log_info "From: $download_url"
+    
+    # Create temporary download path
+    local temp_path="${iso_path}.tmp"
+    
+    # Download with wget (preferred) or curl as fallback
+    if command -v wget &> /dev/null; then
+        if wget --progress=bar:force --timeout=30 --tries=3 -O "$temp_path" "$download_url"; then
+            mv "$temp_path" "$iso_path"
+            log_success "ISO downloaded successfully: $iso_filename"
+        else
+            rm -f "$temp_path"
+            log_error "Failed to download ISO with wget"
+            return 1
+        fi
+    elif command -v curl &> /dev/null; then
+        if curl -L --progress-bar --connect-timeout 30 --retry 3 -o "$temp_path" "$download_url"; then
+            mv "$temp_path" "$iso_path"
+            log_success "ISO downloaded successfully: $iso_filename"
+        else
+            rm -f "$temp_path"
+            log_error "Failed to download ISO with curl"
+            return 1
+        fi
+    else
+        log_error "Neither wget nor curl available for downloading"
+        return 1
+    fi
+    
+    # Verify file size if expected size is provided
+    if [[ "$expected_size" != "null" && "$expected_size" != "0" ]]; then
+        local actual_size=$(stat -c%s "$iso_path" 2>/dev/null || echo "0")
+        if [[ "$actual_size" != "$expected_size" ]]; then
+            log_warning "Downloaded file size mismatch:"
+            log_warning "  Expected: $(numfmt --to=iec $expected_size 2>/dev/null || echo $expected_size)"
+            log_warning "  Actual:   $(numfmt --to=iec $actual_size 2>/dev/null || echo $actual_size)"
+        else
+            log_success "File size verification passed ($(numfmt --to=iec $actual_size 2>/dev/null || echo $actual_size))"
+        fi
+    fi
+    
+    return 0
 }
 
 # Create yum repository for a specific version
 create_version_repo() {
     local version_key="$1"
+    local baseurl_type="$2"
+    local baseurl_prefix="$3"
     local iso_filename version architecture
     
     log_info "Processing version: $version_key"
@@ -98,15 +182,20 @@ create_version_repo() {
         return 1
     fi
     
-    local iso_path="$PROJECT_ROOT/$iso_filename"
+    local iso_path="$ISO_DIR/$iso_filename"
     local repo_dir="$YUM_REPO_DIR/$version_key"
     local packages_dir="$repo_dir/Packages"
     local repodata_dir="$repo_dir/repodata"
     
-    # Check if ISO file exists
+    # Download ISO file if not exists
+    if ! download_iso "$version_key"; then
+        log_error "Failed to download ISO for version $version_key"
+        return 1
+    fi
+    
+    # Check if ISO file exists after download attempt
     if [[ ! -f "$iso_path" ]]; then
         log_error "ISO file not found: $iso_path"
-        log_info "Please download the ISO file first"
         return 1
     fi
     
@@ -159,7 +248,7 @@ create_version_repo() {
         done
     fi
     
-    # Count actual copied RPMs
+    # Count actual copied RPMs and fix permissions
     rpm_count=$(find "$packages_dir" -name "*.rpm" -type f | wc -l)
     log_info "Extracted $rpm_count RPM packages"
     
@@ -167,6 +256,11 @@ create_version_repo() {
         log_error "No RPM packages found in ISO"
         return 1
     fi
+    
+    # Fix permissions for RPM packages
+    log_info "Fixing file permissions..."
+    find "$packages_dir" -type f -name "*.rpm" -exec chmod 644 {} \;
+    find "$packages_dir" -type d -exec chmod 755 {} \;
     
     # Copy repository metadata if exists
     log_info "Looking for existing repository metadata..."
@@ -177,6 +271,9 @@ create_version_repo() {
         if [[ -d "$full_metadata_path" ]]; then
             log_info "Found metadata directory: $metadata_dir"
             rsync -av "$full_metadata_path/" "$repodata_dir/"
+            # Fix permissions for copied metadata files
+            find "$repodata_dir" -type f -exec chmod 644 {} \;
+            find "$repodata_dir" -type d -exec chmod 755 {} \;
         fi
     done
     
@@ -192,17 +289,29 @@ create_version_repo() {
     
     # Create repository configuration file
     local repo_config="$repo_dir/newstartos-$version_key.repo"
+    local baseurl
+    
+    # Generate baseurl based on type
+    case $baseurl_type in
+        file)
+            baseurl="file://$repo_dir"
+            ;;
+        http|https)
+            baseurl="$baseurl_prefix/$version_key"
+            ;;
+    esac
+    
     cat > "$repo_config" << EOF
 [newstartos-$version_key]
 name=NewStart OS $version - \$basearch
-baseurl=file://$repo_dir
+baseurl=$baseurl
 enabled=1
 gpgcheck=0
 priority=1
 
 [newstartos-$version_key-updates]
 name=NewStart OS $version Updates - \$basearch
-baseurl=file://$repo_dir
+baseurl=$baseurl
 enabled=1
 gpgcheck=0
 priority=1
@@ -240,16 +349,103 @@ EOF
     return 0
 }
 
+# Clean function - remove downloaded ISOs and created repositories
+clean_repos() {
+    log_info "Cleaning NewStart OS repositories and ISOs..."
+    
+    # Remove yum repositories
+    if [[ -d "$YUM_REPO_DIR" ]]; then
+        log_info "Removing repository directory: $YUM_REPO_DIR"
+        rm -rf "$YUM_REPO_DIR"
+        log_success "Repository directory removed"
+    else
+        log_info "Repository directory does not exist: $YUM_REPO_DIR"
+    fi
+    
+    # Remove ISO files
+    if [[ -d "$ISO_DIR" ]]; then
+        log_info "Removing ISO directory: $ISO_DIR"
+        rm -rf "$ISO_DIR"
+        log_success "ISO directory removed"
+    else
+        log_info "ISO directory does not exist: $ISO_DIR"
+    fi
+    
+    log_success "Clean completed successfully"
+}
+
 # Main function
 main() {
     local versions=()
+    local baseurl_type="file"
+    local baseurl_prefix=""
+    local clean_mode=false
     
     # Parse command line arguments
-    if [[ $# -eq 0 ]]; then
-        # Default: create repositories for all versions
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            clean)
+                clean_mode=true
+                shift
+                ;;
+            --baseurl-type)
+                baseurl_type="$2"
+                shift 2
+                ;;
+            --baseurl-type=*)
+                baseurl_type="${1#*=}"
+                shift
+                ;;
+            --baseurl-prefix)
+                baseurl_prefix="$2"
+                shift 2
+                ;;
+            --baseurl-prefix=*)
+                baseurl_prefix="${1#*=}"
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            -*)
+                log_error "Unknown option: $1"
+                usage
+                exit 1
+                ;;
+            *)
+                versions+=("$1")
+                shift
+                ;;
+        esac
+    done
+    
+    # Handle clean mode
+    if [[ "$clean_mode" == "true" ]]; then
+        clean_repos
+        return 0
+    fi
+    
+    # Default versions if none specified
+    if [[ ${#versions[@]} -eq 0 ]]; then
         versions=("v6.06.11b10" "v7.02.03b9")
-    else
-        versions=("$@")
+    fi
+    
+    # Validate baseurl_type
+    case $baseurl_type in
+        file|http|https)
+            ;;
+        *)
+            log_error "Invalid baseurl type: $baseurl_type. Must be 'file', 'http', or 'https'"
+            exit 1
+            ;;
+    esac
+    
+    # Set default baseurl_prefix for http/https if not provided
+    if [[ "$baseurl_type" != "file" && -z "$baseurl_prefix" ]]; then
+        log_error "baseurl-prefix is required when using http/https baseurl type"
+        log_info "Example: --baseurl-type=http --baseurl-prefix=http://repo.example.com/newstartos"
+        exit 1
     fi
     
     log_info "NewStart OS YUM Repository Creator"
@@ -269,7 +465,7 @@ main() {
     
     for version in "${versions[@]}"; do
         log_info "Processing version $version..."
-        if create_version_repo "$version"; then
+        if create_version_repo "$version" "$baseurl_type" "$baseurl_prefix"; then
             ((success_count++))
         else
             log_error "Failed to create repository for version $version"
@@ -295,23 +491,41 @@ main() {
 # Show usage information
 usage() {
     cat << EOF
-Usage: $0 [version1] [version2] ...
+Usage: $0 [COMMAND] [OPTIONS] [version1] [version2] ...
 
 Create YUM repositories from NewStart OS ISO files.
+
+COMMANDS:
+  clean                        Clean all repositories and downloaded ISOs
+  [versions...]               Create repositories for specified versions (default)
+
+OPTIONS:
+  --baseurl-type TYPE         Set baseurl type: file (default), http, https
+  --baseurl-prefix PREFIX     Base URL prefix for http/https (required for http/https)
+  -h, --help                 Show this help message
 
 Available versions:
   v6.06.11b10    NewStart OS V6.06.11B10
   v7.02.03b9     NewStart OS V7.02.03B9
 
 Examples:
-  $0                    # Create repositories for all versions
-  $0 v6.06.11b10        # Create repository for V6.06.11B10 only
-  $0 v6.06.11b10 v7.02.03b9  # Create repositories for specific versions
+  $0                                    # Create repositories for all versions (file baseurl)
+  $0 v6.06.11b10                        # Create repository for V6.06.11B10 only
+  $0 --baseurl-type=http --baseurl-prefix=http://repo.example.com/newstartos v6.06.11b10
+  $0 --baseurl-type=https --baseurl-prefix=https://repo.example.com/newstartos
+  $0 clean                              # Clean all repositories and ISOs
 
 Requirements:
-  - ISO files must be present in project root directory
-  - Dependencies: jq, createrepo, rsync
+  - ISO files will be downloaded to: $ISO_DIR/
+  - Dependencies: jq, createrepo_c, rsync, wget/curl, numfmt
   - Root privileges for mounting ISO files
+  - For container usage: Docker and Docker Compose
+
+Container Usage:
+  Use scripts/build-repo-docker.sh for containerized builds:
+  - ./scripts/build-repo-docker.sh build [OPTIONS] [versions...]
+  - ./scripts/build-repo-docker.sh clean
+  - ./scripts/build-repo-docker.sh shell
 
 Output:
   - Repositories created in: $YUM_REPO_DIR/

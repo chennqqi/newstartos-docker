@@ -1,3 +1,5 @@
 *.iso
 iso/
 build-cache/
+yum-repo/
+build-cache/

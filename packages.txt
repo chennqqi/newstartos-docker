@@ -1,0 +1,70 @@
+# NewStart OS Essential Packages List
+# Based on actual packages found in V6.06.11B10 ISO
+
+# Core system
+bash
+coreutils
+util-linux
+glibc
+systemd
+systemd-libs
+systemd-pam
+systemd-sysv
+procps-ng
+iproute
+iputils
+
+# Package management (RHEL 8/Rocky 8 compatible)
+yum
+yum-utils
+rpm
+rpm-libs
+python3-rpm
+libdnf
+python3-libdnf
+dnf
+dnf-data
+python3-dnf
+
+# Development tools
+gcc
+gcc-c++
+make
+binutils
+gdb
+
+# Python
+python3
+python3-libs
+python3-pip
+python3-setuptools
+
+# Network utilities
+bind-utils
+curl
+wget
+openssh-server
+openssh-clients
+
+# Basic utilities
+tar
+gzip
+xz
+which
+less
+vim-minimal
+grep
+sed
+gawk
+findutils
+
+# Security
+policycoreutils
+python3-policycoreutils
+selinux-policy
+selinux-policy-targeted
+
+# Filesystem
+e2fsprogs
+xfsprogs
+dosfstools

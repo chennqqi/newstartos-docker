@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  yum-repo-builder:
+    build:
+      context: ../../
+      dockerfile: dockerfiles/yum-repo-builder/Dockerfile
+    container_name: newstartos-yum-repo-builder
+    volumes:
+      # Mount local directories to persist data
+      - ../../iso:/workspace/iso
+      - ../../yum-repo:/workspace/yum-repo
+      - ../../config:/workspace/config
+      - ../../scripts:/workspace/scripts
+    working_dir: /workspace
+    # Enable privileged mode for mounting ISOs
+    privileged: true
+    # Keep container running for interactive use
+    tty: true
+    stdin_open: true
+    command: /bin/bash

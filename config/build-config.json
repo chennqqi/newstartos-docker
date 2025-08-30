@@ -23,7 +23,7 @@
     "default_version": "v6.06.11b10"
   },
   "docker": {
-    "base_image": "scratch",
+    "base_image": "scratczaizai",
     "registry": "localhost",
     "namespace": "newstartos"
   },
